@@ -36,6 +36,7 @@
 
 #include <fcntl.h>
 #include <cstdlib>
+#include <optional>
 
 // TODO: move these enums to a common location for all graph convert tools
 enum ConvertMode {
@@ -703,7 +704,7 @@ struct Mtx2Gr : public HasNoVoidSpecialization {
         uint32_t cur_id, neighbor_id;
         double weight = 1;
 
-        infile >> cur_id >> neighbor_id >> weight;
+        infile >> cur_id >> neighbor_id;
         if (cur_id == 0 || cur_id > nnodes) {
           GALOIS_DIE("node id out of range: ", cur_id);
         }

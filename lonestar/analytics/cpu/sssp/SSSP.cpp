@@ -30,6 +30,7 @@
 #include "llvm/Support/CommandLine.h"
 
 #include <iostream>
+#include <vector>
 
 namespace cll = llvm::cl;
 
@@ -63,25 +64,27 @@ enum Algo {
   dijkstraTile,
   dijkstra,
   topo,
-  topoTile
+  topoTile,
+  AutoAlgo,
+  twoPhase
 };
 
 const char* const ALGO_NAMES[] = {
-    "deltaTile",    "deltaStep", "deltaStepBarrier",
-    "serDeltaTile", "serDelta",  "dijkstraTile",
-    "dijkstra",     "topo",      "topoTile"};
+    "deltaTile", "deltaStep",    "deltaStepBarrier", "serDeltaTile",
+    "serDelta",  "dijkstraTile", "dijkstra",         "topo",
+    "topoTile",  "Auto",         "twoPhase"};
 
-static cll::opt<Algo>
-    algo("algo", cll::desc("Choose an algorithm:"),
-         cll::values(clEnumVal(deltaTile, "deltaTile"),
-                     clEnumVal(deltaStep, "deltaStep"),
-                     clEnumVal(deltaStepBarrier, "deltaStepBarrier"),
-                     clEnumVal(serDeltaTile, "serDeltaTile"),
-                     clEnumVal(serDelta, "serDelta"),
-                     clEnumVal(dijkstraTile, "dijkstraTile"),
-                     clEnumVal(dijkstra, "dijkstra"), clEnumVal(topo, "topo"),
-                     clEnumVal(topoTile, "topoTile")),
-         cll::init(deltaTile));
+static cll::opt<Algo> algo("algo", cll::desc("Choose an algorithm:"),
+                           cll::values(clEnumVal(deltaTile, "deltaTile"),
+                                       clEnumVal(deltaStep, "deltaStep"),
+                                       clEnumVal(serDeltaTile, "serDeltaTile"),
+                                       clEnumVal(serDelta, "serDelta"),
+                                       clEnumVal(dijkstraTile, "dijkstraTile"),
+                                       clEnumVal(dijkstra, "dijkstra"),
+                                       clEnumVal(topo, "topo"),
+                                       clEnumVal(twoPhase, "twoPhase"),
+                                       clEnumVal(topoTile, "topoTile")),
+                           cll::init(deltaTile));
 
 //! [withnumaalloc]
 using Graph = galois::graphs::LC_CSR_Graph<std::atomic<uint32_t>, uint32_t>::
@@ -348,6 +351,121 @@ void topoTileAlgo(Graph& graph, const GNode& source) {
   galois::runtime::reportStat_Single("SSSP-topo", "rounds", rounds);
 }
 
+#define NPARTS 2
+
+void twoPhaseAlgorithm(Graph& graph, const GNode& source) {
+
+  // Data Structures for Algorithm
+  galois::ThreadSafeOrderedSet<GNode> frontier;
+  galois::InsertBag<UpdateRequest> updates;
+  size_t rounds = 0;
+
+  // Data Structures for Statistics
+  std::vector<galois::ThreadSafeOrderedSet<GNode>> ptn_overlap =
+      std::vector<galois::ThreadSafeOrderedSet<GNode>>(
+          NPARTS); // Overlap vertices in partitions
+
+  std::vector<galois::LargeArray<GNode>> mirror_data =
+      std::vector<galois::LargeArray<GNode>>(
+          NPARTS); // Track Transient Mirrors' Data
+
+  
+  unsigned int dm_nmp_disabled      = 0;
+  unsigned int dm_nmp_enabled       = 0;
+  constexpr unsigned int kv_size    = 16;
+  constexpr unsigned int gNode_size = 8;
+  galois::GAccumulator<unsigned int> total_out_edges;
+  galois::GAccumulator<unsigned int> frontier_size;
+  galois::LargeArray<unsigned int> partition_ids;
+
+  partition_ids.allocateInterleaved(graph.size());
+  for (unsigned int i = 0; i < NPARTS; i++) {
+    mirror_data[i].allocateInterleaved(graph.size());
+  }
+
+  // Initialization
+  // INTY and 0 have already been set in main()
+  frontier.push(source);
+  frontier_size += 1;
+  galois::do_all(
+      galois::iterate(graph),
+      [&](const GNode& n) {
+        partition_ids.constructAt(n, n % NPARTS);
+
+        for (unsigned int i = 0; i < NPARTS; i++) {
+          mirror_data[i].constructAt(n, SSSP::DIST_INFINITY);
+        }
+        // Print Edges
+        // for (auto e : graph.edges(n)) {
+        //   std::cout << "Edge: " << n << "--> " << graph.getEdgeDst(e)
+        //             << std::endl;
+        // }
+        // std::cout << "Node: " << n << " Partition: "
+        //           << partition_ids[n]
+        //           << std::endl;
+      },
+      galois::loopname("Initialization"));
+
+  do {
+
+    galois::gInfo("Round ", rounds, ", ", frontier_size.reduce(), " nodes");
+
+    rounds++;
+    dm_nmp_disabled += frontier_size.reduce() * gNode_size;
+    dm_nmp_enabled += frontier_size.reduce() * kv_size;
+
+    galois::do_all(
+        galois::iterate(frontier),
+        [&](const GNode& src) {
+          auto& sdata = graph.getData(src);
+          total_out_edges +=
+              std::distance(graph.edge_begin(src), graph.edge_end(src));
+
+          for (auto e : graph.edges(src)) {
+            auto dst     = graph.getEdgeDst(e);
+            Dist newDist = sdata + graph.getEdgeData(e);
+
+            if (mirror_data[partition_ids[src]][dst] > newDist) {
+              mirror_data[partition_ids[src]][dst] = newDist;
+              ptn_overlap[partition_ids[src]].insert(dst);
+              updates.push(UpdateRequest{dst, newDist});
+            }
+          }
+        },
+        galois::loopname("SSSP-GenUpdates"));
+
+    frontier.clear();
+    frontier_size.reset();
+
+    dm_nmp_disabled += total_out_edges.reduce() * gNode_size;
+    for (unsigned int i = 0; i < NPARTS; i++) {
+      dm_nmp_enabled += ptn_overlap[i].size() * kv_size;
+      ptn_overlap[i].clear();
+    }
+    total_out_edges.reset();
+
+    galois::do_all(
+        galois::iterate(updates),
+        [&](const UpdateRequest& req) {
+          auto& sdata = graph.getData(req.src);
+
+          if (sdata > req.dist) {
+            galois::atomicMin(sdata, req.dist);
+            frontier.push(req.src);
+            frontier_size += 1;
+          }
+        },
+        galois::loopname("SSSP-ApplyUpdates"));
+    updates.clear();
+  } while (!frontier.empty());
+
+  galois::runtime::reportStat_Single("SSSP-2Phase", "rounds", rounds);
+  galois::runtime::reportStat_Single("SSSP-2Phase", "dm_nmp_disabled",
+                                     dm_nmp_disabled);
+  galois::runtime::reportStat_Single("SSSP-2Phase", "dm_nmp_enabled",
+                                     dm_nmp_enabled);
+}
+
 int main(int argc, char** argv) {
   galois::SharedMemSys G;
   LonestarStart(argc, argv, name, desc, url, &inputFile);
@@ -434,10 +552,8 @@ int main(int argc, char** argv) {
     topoTileAlgo(graph, source);
     break;
 
-  case deltaStepBarrier:
-    std::cout << "Using OBIM with barrier\n";
-    deltaStepAlgo<UpdateRequest, OBIM_Barrier>(graph, source, ReqPushWrap(),
-                                               OutEdgeRangeFn{graph});
+  case twoPhase:
+    twoPhaseAlgorithm(graph, source);
     break;
 
   default:
@@ -463,7 +579,7 @@ int main(int argc, char** argv) {
       galois::iterate(graph),
       [&](uint64_t i) {
         uint32_t myDistance = graph.getData(i);
-
+        galois::gInfo("Node ", i, " has distance ", myDistance);
         if (myDistance != SSSP::DIST_INFINITY) {
           maxDistance.update(myDistance);
           distanceSum += myDistance;

@@ -8,6 +8,9 @@
 .settings
 .*.swo
 *.swp
+*.o
+*.xml
+*.iml
 .vscode
 
 # no tool generated files
@@ -24,6 +27,11 @@ tags
 
 # no build files
 /build*
+/cmake-build-debug
+/gprof_build
+/graphs
+/install
+/release
 
 # no python build artifacts
 *.pyc
