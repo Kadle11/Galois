@@ -1,142 +1,104 @@
-#include "galois/Galois.h"
-#include "galois/AtomicHelpers.h"
-#include "galois/Reduction.h"
-#include "galois/PriorityQueue.h"
-#include "galois/Timer.h"
-#include "galois/graphs/LCGraph.h"
-#include "galois/graphs/TypeTraits.h"
-#include "Lonestar/BoilerPlate.h"
 
+#include "skywalker.h"
 #include "llvm/Support/CommandLine.h"
+
+#include "sssp.hpp"
 
 #include <iostream>
 #include <vector>
 
-// #define SKYWALKER_DEBUG
+static const char* name = "Skywalker";
+static const char* desc = "";
+static const char* url  = "skywalker";
 
-namespace cll = llvm::cl;
+uint64_t sumResetLargeArray(galois::LargeArray<uint8_t>& arr) {
+  galois::GAccumulator<uint64_t> sum;
+  galois::do_all(
+      galois::iterate(size_t{0}, arr.size()),
+      [&](size_t i) {
+        sum += arr[i];
+        arr[i] = 0;
+      },
+      galois::steal(), galois::no_stats());
 
-static const char* name              = "Skywalker";
-static const char* desc              = "";
-static const char* url               = "skywalker";
-static const unsigned int NPARTS     = 4;
-static const unsigned int MAX_ROUNDS = 100;
+  return sum.reduce();
+}
 
-static cll::opt<std::string>
-    inputFile(cll::Positional, cll::desc("<input file>"), cll::Required);
+template <typename T>
+GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
+  galois::graphs::readGraph(graph, input);
 
-struct LNode {
-  uint64_t curr_val;
-  uint64_t prev_val;
-
-  uint64_t agg_val;
-};
-
-using Graph =
-    galois::graphs::LC_CSR_Graph<LNode, uint32_t>::with_no_lockable<true>::type;
-
-using GNode = Graph::GraphNode;
-
-struct VertexUpdates {
-  GNode src;
-  uint64_t val;
-  VertexUpdates(const GNode& N, uint64_t W) : src(N), val(W) {}
-  VertexUpdates() : src(), val(INT64_MAX) {}
-};
-
-int main(int argc, char** argv) {
-  galois::SharedMemSys G;
-  LonestarStart(argc, argv, name, desc, url, &inputFile);
-
-  galois::StatTimer totalTime("TimerTotal");
-  totalTime.start();
-
-  Graph graph;
-
-  std::cout << "Reading from file: " << inputFile << "\n";
-  galois::graphs::readGraph(graph, inputFile);
-  std::cout << "Nodes: " << graph.size() << ", Edges: " << graph.sizeEdges()
-            << std::endl;
-
-  galois::LargeArray<unsigned int> partition_ids;
-  partition_ids.allocateInterleaved(graph.size());
-
-  galois::InsertBag<GNode> frontier;
-  galois::LazyArray<galois::InsertBag<VertexUpdates>, NPARTS> ptn_updates;
-  galois::LazyArray<galois::LargeArray<uint64_t>, NPARTS> ptn_mirrors;
-
-  // Structures for Telemetry
-  galois::GAccumulator<uint64_t> dm_ndp_enabled;
-  galois::GAccumulator<uint64_t> dm_ndp_disabled;
-  galois::GAccumulator<uint64_t> frontier_size;
-  galois::LazyArray<galois::GAccumulator<uint64_t>, NPARTS> ptn_sizes;
-
-  uint64_t rounds             = 0;
-  constexpr uint64_t vtx_size = 8;
-  constexpr uint64_t kv_size  = 16;
-
-  // Allocate LazyArrays
   for (unsigned int i = 0; i < NPARTS; ++i) {
-    ptn_updates.construct(i, galois::InsertBag<VertexUpdates>());
+    ptn_updates.construct(i, galois::InsertBag<VertexUpdates<T>>());
     ptn_sizes.construct(i, galois::GAccumulator<uint64_t>());
-  }
+    ptn_update_vtxs.construct(i, galois::LargeArray<uint8_t>());
 
-  galois::StatTimer execTime("Timer_0");
-  execTime.start();
+    ptn_update_vtxs[i].allocateInterleaved(graph.size());
+  }
+  partition_ids.allocateInterleaved(graph.size());
 
   galois::do_all(
       galois::iterate(graph),
-      [&](GNode n) {
-        LNode& data   = graph.getData(n, galois::MethodFlag::UNPROTECTED);
-        data.curr_val = INT64_MAX;
-        data.agg_val  = INT64_MAX;
+      [&](GNode<T> n) {
+        LNode<T>& data = graph.getData(n, galois::MethodFlag::UNPROTECTED);
+        data.curr_val  = 0;
+        data.agg_val   = 0;
+        data.num_out_edges =
+            std::distance(graph.edges(n).begin(), graph.edges(n).end());
+
         partition_ids.constructAt(n, n % NPARTS);
         ptn_sizes[partition_ids[n]] += 1;
       },
       galois::steal(), galois::loopname("Init Graph Strtucture"));
 
   for (unsigned int i = 0; i < NPARTS; ++i) {
-    ptn_mirrors.construct(i, galois::LargeArray<uint64_t>());
+    ptn_mirrors.construct(i, galois::LargeArray<T>());
     ptn_mirrors[i].allocateInterleaved(graph.size());
     galois::do_all(
         galois::iterate(graph),
-        [&](GNode n) { ptn_mirrors[i].constructAt(n, INT64_MAX); },
+        [&](GNode<T> n) { ptn_mirrors[i].constructAt(n, INT64_MAX); },
         galois::steal(), galois::loopname("Init Mirrors"));
   }
 
-  frontier.push(0);
-  graph.getData(0).curr_val = 0;
+  dm_ndp_enabled.reset();
+  dm_ndp_disabled.reset();
+}
+
+template <typename T>
+void GraphAlgorithm<T>::run() {
 
   do {
-
     rounds++;
 
     // Update Mirrors
     galois::do_all(
         galois::iterate(frontier),
-        [&](GNode& src) {
-          LNode& sdata = graph.getData(src, galois::MethodFlag::UNPROTECTED);
-          uint64_t val = sdata.curr_val;
-
-          ptn_mirrors[partition_ids[src]][src] = val;
+        [&](GNode<T>& src) {
+          LNode<T>& sdata = graph.getData(src, galois::MethodFlag::UNPROTECTED);
+          ptn_mirrors[partition_ids[src]][src] = sdata.curr_val;
           frontier_size += 1;
 
 #ifdef SKYWALKER_DEBUG
-          galois::gInfo("Updating mirror ", src, " with ", val);
+          galois::gInfo("Updating mirror ", src, " with ", sdata.curr_val);
 #endif
         },
         galois::steal(), galois::loopname("Update Mirrors"));
 
+#ifdef ITER_STATS
+    galois::gInfo("Frontier Size: ", frontier_size.reduce());
+#endif
+
     dm_ndp_disabled += frontier_size.reduce() * vtx_size;
     dm_ndp_enabled += frontier_size.reduce() * kv_size;
 
-    galois::gInfo("Frontier Size: ", frontier_size.reduce());
+    ndp_disabled_iter += frontier_size.reduce() * vtx_size;
+    ndp_enabled_iter += frontier_size.reduce() * kv_size;
 
     // Generate Updates
     for (unsigned int i = 0; i < NPARTS; ++i) {
       galois::do_all(
           galois::iterate(frontier),
-          [&](GNode& mirror) {
+          [&](GNode<T>& mirror) {
             if (partition_ids[mirror] != i) {
               return;
             }
@@ -145,20 +107,11 @@ int main(int argc, char** argv) {
                                              graph.edges(mirror).end()) *
                                vtx_size;
 
-            for (auto ii : graph.edges(mirror)) {
-              GNode dst = graph.getEdgeDst(ii);
+            ndp_disabled_iter += std::distance(graph.edges(mirror).begin(),
+                                               graph.edges(mirror).end()) *
+                                 vtx_size;
 
-              uint64_t& curr_dist = ptn_mirrors[i][dst];
-              uint64_t new_dist   = ptn_mirrors[i][mirror] + 1;
-
-              if (new_dist < curr_dist) {
-                ptn_updates[i].push(VertexUpdates(dst, new_dist));
-#ifdef SKYWALKER_DEBUG
-                galois::gInfo("Partition[", i, "] Pushing update from ", mirror,
-                              " to ", dst, " with ", new_dist);
-#endif
-              }
-            }
+            generateUpdates(i, mirror);
           },
           galois::steal(), galois::loopname("Generate Updates"));
     }
@@ -170,25 +123,32 @@ int main(int argc, char** argv) {
     for (unsigned int i = 0; i < NPARTS; ++i) {
       galois::do_all(
           galois::iterate(ptn_updates[i]),
-          [&](VertexUpdates& ptn_update) {
-            LNode& sdata =
+          [&](VertexUpdates<T>& ptn_update) {
+            LNode<T>& sdata =
                 graph.getData(ptn_update.src, galois::MethodFlag::UNPROTECTED);
-            sdata.agg_val = std::min(sdata.agg_val, ptn_update.val);
+            aggregateUpdates(sdata.agg_val, ptn_update.val);
+
+            ptn_update_vtxs[i].constructAt(ptn_update.src, 1);
           },
           galois::steal(), galois::loopname("Aggregate Updates"));
       ptn_updates[i].clear();
+
+      uint64_t unique_vtxs = sumResetLargeArray(ptn_update_vtxs[i]);
+
+      galois::gInfo("Partition[", i, "] Unique Vtxs: ", unique_vtxs);
+
+      dm_ndp_enabled += unique_vtxs * kv_size;
+      ndp_enabled_iter += unique_vtxs * kv_size;
     }
 
     // Apply Updates
     galois::do_all(
         galois::iterate(graph),
-        [&](GNode src) {
-          LNode& sdata = graph.getData(src, galois::MethodFlag::UNPROTECTED);
+        [&](GNode<T> src) {
+          LNode<T>& sdata = graph.getData(src, galois::MethodFlag::UNPROTECTED);
           if (sdata.agg_val == INT64_MAX) {
             return;
           }
-
-          dm_ndp_enabled += kv_size;
 
           if (sdata.agg_val < sdata.curr_val) {
             sdata.curr_val = sdata.agg_val;
@@ -203,27 +163,54 @@ int main(int argc, char** argv) {
         },
         galois::steal(), galois::loopname("Apply Updates"));
 
-    // aggregate_updates.clear();
-
-  } while (!frontier.empty() && rounds < MAX_ROUNDS);
-
-  // Print out the results
-
-#ifdef SKYWALKER_DEBUG
-  for (auto n : graph) {
-    std::cout << n << " " << graph.getData(n).curr_val << "\n";
-  }
+#ifdef ITER_STATS
+    galois::gInfo("Iter[", rounds,
+                  "] NDP Enabled: ", ndp_enabled_iter.reduce());
+    galois::gInfo("Iter[", rounds,
+                  "] NDP Disabled: ", ndp_disabled_iter.reduce());
 #endif
 
-  execTime.stop();
-  totalTime.stop();
+    ndp_enabled_iter.reset();
+    ndp_disabled_iter.reset();
 
+  } while (terminate() && rounds < MAX_ROUNDS);
+}
+
+template <typename T>
+void GraphAlgorithm<T>::reportStats() {
   galois::reportPageAlloc("MeminfoPost");
   galois::runtime::reportStat_Single("Skywalker", "Iterations", rounds);
   galois::runtime::reportStat_Single(
       "Skywalker", "Data Movement (NDP Enabled) ", dm_ndp_enabled.reduce());
   galois::runtime::reportStat_Single(
       "Skywalker", "Data Movement (NDP Disabled)", dm_ndp_disabled.reduce());
+
+#ifdef SKYWALKER_DEBUG
+  // Print out the results
+  for (auto n : graph) {
+    std::cout << n << " " << graph.getData(n).curr_val << "\n";
+  }
+#endif
+}
+
+int main(int argc, char** argv) {
+  galois::SharedMemSys G;
+  LonestarStart(argc, argv, name, desc, url, &inputFile);
+
+  galois::StatTimer totalTime("TimerTotal");
+  totalTime.start();
+
+  galois::StatTimer execTime("Timer_0");
+  execTime.start();
+
+  SSSP<int64_t> algo_impl(inputFile);
+
+  algo_impl.init();
+  algo_impl.run();
+  algo_impl.reportStats();
+
+  execTime.stop();
+  totalTime.stop();
 
   return 0;
 }
