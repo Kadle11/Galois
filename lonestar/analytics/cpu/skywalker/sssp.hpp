@@ -26,17 +26,15 @@ void SSSP<T>::init() {
       [&](GNode<T> n) {
         LNode<T>& data =
             this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
-        if (n == 0) {
-          data.curr_val = 0;
-          data.prev_val = 0;
-        } else {
-          data.curr_val = INT64_MAX;
-          data.prev_val = INT64_MAX;
-        }
+
+        data.curr_val = INT64_MAX;
+        data.prev_val = INT64_MAX;
+        data.agg_val  = INT64_MAX;
       },
       galois::steal(), galois::loopname("Init SSSP"));
 
   this->frontier.push(0);
+  this->graph.getData(0).curr_val = 0;
 }
 
 template <typename T>

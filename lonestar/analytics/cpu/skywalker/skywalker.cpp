@@ -11,6 +11,28 @@ static const char* name = "Skywalker";
 static const char* desc = "";
 static const char* url  = "skywalker";
 
+void gen_partitions(idx_t* num_nodes, std::vector<idx_t>& parts,
+                    std::vector<idx_t>& xadj, std::vector<idx_t>& adjncy) {
+
+  idx_t options[METIS_NOPTIONS];
+
+  idx_t ncon   = 1;
+  idx_t nparts = NPARTS;
+  idx_t objval;
+
+  METIS_SetDefaultOptions(options);
+
+  int res = METIS_PartGraphKway(num_nodes, &ncon, xadj.data(), adjncy.data(),
+                                NULL, NULL, NULL, &nparts, NULL, NULL, options,
+                                &objval, parts.data());
+
+  if (res == METIS_OK) {
+    std::cout << "METIS Partitioning Successful\n";
+  } else {
+    std::cout << "METIS Partitioning Failed\n";
+  }
+}
+
 uint64_t sumResetLargeArray(galois::LargeArray<uint8_t>& arr) {
   galois::GAccumulator<uint64_t> sum;
   galois::do_all(
@@ -27,6 +49,34 @@ uint64_t sumResetLargeArray(galois::LargeArray<uint8_t>& arr) {
 template <typename T>
 GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
   galois::graphs::readGraph(graph, input);
+
+#ifdef METIS_SCHEME
+
+  std::vector<idx_t> partitions(graph.size());
+  std::vector<idx_t> xadj;
+  std::vector<idx_t> adjncy;
+
+  xadj.reserve(graph.size() + 1);
+
+  idx_t curr_offset = 0;
+  xadj.push_back(curr_offset);
+
+  for (auto n : graph) {
+    LNode<T>& data = graph.getData(n, galois::MethodFlag::UNPROTECTED);
+    curr_offset += data.num_out_edges;
+    xadj.push_back(curr_offset);
+
+    for (auto e : graph.edges(n)) {
+      adjncy.push_back(graph.getEdgeDst(e));
+    }
+  }
+
+  idx_t num_nodes = graph.size();
+  gen_partitions(&num_nodes, partitions, xadj, adjncy);
+  adjncy.clear();
+  xadj.clear();
+
+#endif
 
   for (unsigned int i = 0; i < NPARTS; ++i) {
     ptn_updates.construct(i, galois::InsertBag<VertexUpdates<T>>());
@@ -46,7 +96,12 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
         data.num_out_edges =
             std::distance(graph.edges(n).begin(), graph.edges(n).end());
 
+#ifdef METIS_SCHEME
+
+        partition_ids.constructAt(n, partitions[n]);
+#else
         partition_ids.constructAt(n, n % NPARTS);
+#endif
         ptn_sizes[partition_ids[n]] += 1;
       },
       galois::steal(), galois::loopname("Init Graph Strtucture"));
@@ -54,6 +109,7 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
   for (unsigned int i = 0; i < NPARTS; ++i) {
     ptn_mirrors.construct(i, galois::LargeArray<T>());
     ptn_mirrors[i].allocateInterleaved(graph.size());
+
     galois::do_all(
         galois::iterate(graph),
         [&](GNode<T> n) { ptn_mirrors[i].constructAt(n, INT64_MAX); },
@@ -62,6 +118,12 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
 
   dm_ndp_enabled.reset();
   dm_ndp_disabled.reset();
+
+#ifdef METIS_SCHEME
+
+  partitions.clear();
+
+#endif
 }
 
 template <typename T>
@@ -206,6 +268,8 @@ int main(int argc, char** argv) {
   SSSP<int64_t> algo_impl(inputFile);
 
   algo_impl.init();
+  algo_impl.reportStats();
+
   algo_impl.run();
   algo_impl.reportStats();
 

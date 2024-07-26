@@ -14,8 +14,11 @@
 #include <vector>
 #include <string>
 
+#include "metis.h"
+
 // #define SKYWALKER_DEBUG
 // #define ITER_STATS
+#define METIS_SCHEME
 
 #define NPARTS 2
 
