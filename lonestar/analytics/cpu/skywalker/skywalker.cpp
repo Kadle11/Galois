@@ -178,7 +178,7 @@ void GraphAlgorithm<T>::run() {
 
             generateUpdates(i, mirror);
           },
-          galois::steal(), galois::loopname("Generate Updates"));
+          galois::loopname("Generate Updates"));
     }
 
     frontier.clear();
