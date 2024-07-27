@@ -47,7 +47,7 @@ void SSSP<T>::generateUpdates(unsigned int& ptn_id, GNode<T>& mirror) {
 
     if (new_dist < curr_dist) {
       this->ptn_updates[ptn_id].push(VertexUpdates(dst, new_dist));
-      this->ptn_mirrors[ptn_id][dst] = new_dist;
+      // this->ptn_mirrors[ptn_id][dst] = new_dist;
     }
   }
 }

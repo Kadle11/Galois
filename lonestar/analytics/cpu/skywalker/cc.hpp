@@ -48,7 +48,7 @@ void CC<T>::generateUpdates(unsigned int& ptn_id, GNode<T>& mirror) {
 
     if (src_val < curr_val) {
       this->ptn_updates[ptn_id].push(VertexUpdates(dst, src_val));
-      this->ptn_mirrors[ptn_id][dst] = src_val;
+      // this->ptn_mirrors[ptn_id][dst] = src_val;
     }
   }
 }
