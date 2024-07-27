@@ -3,6 +3,8 @@
 #include "llvm/Support/CommandLine.h"
 
 #include "sssp.hpp"
+#include "pr.hpp"
+#include "cc.hpp"
 
 #include <iostream>
 #include <vector>
@@ -179,6 +181,7 @@ void GraphAlgorithm<T>::run() {
           galois::steal(), galois::loopname("Generate Updates"));
     }
 
+
     frontier.clear();
     frontier_size.reset();
 
@@ -206,27 +209,9 @@ void GraphAlgorithm<T>::run() {
       ndp_enabled_iter += unique_vtxs * kv_size;
     }
 
-    // Apply Updates
-    galois::do_all(
-        galois::iterate(graph),
-        [&](GNode<T> src) {
-          LNode<T>& sdata = graph.getData(src, galois::MethodFlag::UNPROTECTED);
-          if (sdata.agg_val == INT64_MAX) {
-            return;
-          }
+    updateFrontier();
 
-          if (sdata.agg_val < sdata.curr_val) {
-            sdata.curr_val = sdata.agg_val;
-            frontier.push(src);
-
-#ifdef SKYWALKER_DEBUG
-            galois::gInfo("Applying update to ", src, " with ", sdata.agg_val);
-#endif
-          }
-
-          sdata.agg_val = INT64_MAX;
-        },
-        galois::steal(), galois::loopname("Apply Updates"));
+    applyUpdates();
 
 #ifdef ITER_STATS
     galois::gInfo("Iter[", rounds,
@@ -268,7 +253,7 @@ int main(int argc, char** argv) {
   galois::StatTimer execTime("Timer_0");
   execTime.start();
 
-  SSSP<int64_t> algo_impl(inputFile);
+  PR<double> algo_impl(inputFile);
 
   algo_impl.init();
   algo_impl.reportStats();

@@ -61,9 +61,16 @@ void CC<T>::applyUpdates() {
         LNode<T>& data =
             this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
 
+        if (data.agg_val == INT64_MAX) {
+          return;
+        }
+
         if (data.curr_val > data.agg_val) {
           data.curr_val = data.agg_val;
+          this->frontier.push(n);
         }
+
+        data.agg_val = INT64_MAX;
       },
       galois::steal(), galois::loopname("Apply Updates"));
 }
@@ -74,18 +81,7 @@ void CC<T>::aggregateUpdates(T& value, T& temp_val) {
 }
 
 template <typename T>
-void CC<T>::updateFrontier() {
-  galois::do_all(
-      galois::iterate(this->graph),
-      [&](GNode<T> n) {
-        LNode<T>& data =
-            this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
-        if (data.curr_val < data.agg_val) {
-          this->frontier.push(n);
-        }
-      },
-      galois::steal(), galois::loopname("Update Frontier"));
-}
+void CC<T>::updateFrontier() {}
 
 template <typename T>
 bool CC<T>::terminate() {

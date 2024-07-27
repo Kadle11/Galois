@@ -60,9 +60,16 @@ void SSSP<T>::applyUpdates() {
         LNode<T>& data =
             this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
 
+        if (data.agg_val == INT64_MAX) {
+          return;
+        }
+
         if (data.curr_val > data.agg_val) {
           data.curr_val = data.agg_val;
+          this->frontier.push(n);
         }
+
+        data.agg_val = INT64_MAX;
       },
       galois::steal(), galois::loopname("Apply Updates"));
 }
@@ -73,18 +80,7 @@ void SSSP<T>::aggregateUpdates(T& value, T& temp_val) {
 }
 
 template <typename T>
-void SSSP<T>::updateFrontier() {
-  galois::do_all(
-      galois::iterate(this->graph),
-      [&](GNode<T> n) {
-        LNode<T>& data =
-            this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
-        if (data.curr_val < data.agg_val) {
-          this->frontier.push(n);
-        }
-      },
-      galois::steal(), galois::loopname("Update Frontier"));
-}
+void SSSP<T>::updateFrontier() {}
 
 template <typename T>
 bool SSSP<T>::terminate() {
