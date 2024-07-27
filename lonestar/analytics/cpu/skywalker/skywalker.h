@@ -13,14 +13,15 @@
 #include <iostream>
 #include <vector>
 #include <string>
+#include <shared_mutex>
 
 #include "metis.h"
 
 // #define SKYWALKER_DEBUG
 // #define ITER_STATS
-#define METIS_SCHEME
+// #define METIS_SCHEME
 
-#define NPARTS 2
+#define NPARTS 128
 
 namespace cll = llvm::cl;
 static cll::opt<std::string>
@@ -43,11 +44,60 @@ template <typename T>
 using GNode = typename Graph<T>::GraphNode;
 
 template <typename T>
-struct VertexUpdates {
-  GNode<T> src;
-  T val;
-  VertexUpdates(const GNode<T>& N, T W) : src(N), val(W) {}
-  VertexUpdates() : src(), val(0) {}
+struct VertexMirror {
+  T value;
+  bool updated;
+
+  std::shared_mutex _mtx;
+
+  VertexMirror() : value(0), updated(false) {}
+  T getValue() {
+    std::shared_lock<std::shared_mutex> lock(_mtx);
+    return value;
+  }
+
+  void initialize(const T& val) {
+    std::lock_guard<std::shared_mutex> lock(_mtx);
+    value = val;
+  }
+
+  void setValue(const T& val) {
+    std::lock_guard<std::shared_mutex> lock(_mtx);
+    value   = val;
+    updated = true;
+  }
+
+  void minUpdate(const T& val) {
+    std::lock_guard<std::shared_mutex> lock(_mtx);
+    if (val < value) {
+      value   = val;
+      updated = true;
+    }
+  }
+
+  void maxUpdate(const T& val) {
+    std::lock_guard<std::shared_mutex> lock(_mtx);
+    if (val > value) {
+      value   = val;
+      updated = true;
+    }
+  }
+
+  void addUpdate(const T& val) {
+    std::lock_guard<std::shared_mutex> lock(_mtx);
+    value += val;
+    updated = true;
+  }
+
+  bool isUpdated() {
+    std::shared_lock<std::shared_mutex> lock(_mtx);
+    return updated;
+  }
+
+  void reset() {
+    std::lock_guard<std::shared_mutex> lock(_mtx);
+    updated = false;
+  }
 };
 
 template <typename T>
@@ -62,7 +112,7 @@ public:
   virtual void init()                                                  = 0;
   virtual void generateUpdates(unsigned int& ptn_id, GNode<T>& mirror) = 0;
   virtual void applyUpdates()                                          = 0;
-  virtual void aggregateUpdates(T& value, T& temp_val)                 = 0;
+  virtual void aggregateUpdates(T& value, const T& temp_val)           = 0;
   virtual void updateFrontier()                                        = 0;
   virtual bool terminate()                                             = 0;
 
@@ -70,8 +120,7 @@ protected:
   Graph<T> graph;
 
   galois::InsertBag<GNode<T>> frontier;
-  galois::LazyArray<galois::InsertBag<VertexUpdates<T>>, NPARTS> ptn_updates;
-  galois::LazyArray<galois::LargeArray<T>, NPARTS> ptn_mirrors;
+  galois::LazyArray<galois::LargeArray<VertexMirror<T>>, NPARTS> ptn_mirrors;
   galois::LargeArray<unsigned int> partition_ids;
 
   // Structures for Telemetry

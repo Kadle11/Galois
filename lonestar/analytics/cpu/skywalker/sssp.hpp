@@ -11,7 +11,7 @@ public:
   void init();
   void generateUpdates(unsigned int& ptn_id, GNode<T>& mirror);
   void applyUpdates();
-  void aggregateUpdates(T& value, T& temp_val);
+  void aggregateUpdates(T& value, const T& temp_val);
   void updateFrontier();
   bool terminate();
 };
@@ -30,6 +30,10 @@ void SSSP<T>::init() {
         data.curr_val = INT64_MAX;
         data.prev_val = INT64_MAX;
         data.agg_val  = INT64_MAX;
+
+        for (auto ii = 0; ii < NPARTS; ++ii) {
+          this->ptn_mirrors[ii][n].value = INT64_MAX;
+        }
       },
       galois::steal(), galois::loopname("Init SSSP"));
 
@@ -39,16 +43,10 @@ void SSSP<T>::init() {
 
 template <typename T>
 void SSSP<T>::generateUpdates(unsigned int& ptn_id, GNode<T>& mirror) {
+  T new_dist = this->ptn_mirrors[ptn_id][mirror].getValue() + 1;
   for (auto ii : this->graph.edges(mirror)) {
     GNode<T> dst = this->graph.getEdgeDst(ii);
-
-    T& curr_dist = this->ptn_mirrors[ptn_id][dst];
-    T new_dist   = this->ptn_mirrors[ptn_id][mirror] + 1;
-
-    if (new_dist < curr_dist) {
-      this->ptn_updates[ptn_id].push(VertexUpdates(dst, new_dist));
-      this->ptn_mirrors[ptn_id][dst] = new_dist;
-    }
+    this->ptn_mirrors[ptn_id][dst].minUpdate(new_dist);
   }
 }
 
@@ -68,7 +66,7 @@ void SSSP<T>::applyUpdates() {
 }
 
 template <typename T>
-void SSSP<T>::aggregateUpdates(T& value, T& temp_val) {
+void SSSP<T>::aggregateUpdates(T& value, const T& temp_val) {
   value = std::min(value, temp_val);
 }
 
