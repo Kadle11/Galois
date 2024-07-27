@@ -49,6 +49,7 @@ uint64_t sumResetLargeArray(galois::LargeArray<uint8_t>& arr) {
 template <typename T>
 GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
   galois::graphs::readGraph(graph, input);
+  galois::gInfo("Read ", graph.size(), " nodes ", graph.sizeEdges(), " edges");
 
 #ifdef METIS_SCHEME
 
@@ -197,7 +198,9 @@ void GraphAlgorithm<T>::run() {
 
       uint64_t unique_vtxs = sumResetLargeArray(ptn_update_vtxs[i]);
 
+#ifdef ITER_STATS
       galois::gInfo("Partition[", i, "] Unique Vtxs: ", unique_vtxs);
+#endif
 
       dm_ndp_enabled += unique_vtxs * kv_size;
       ndp_enabled_iter += unique_vtxs * kv_size;
