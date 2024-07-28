@@ -29,7 +29,7 @@ void SSSP<T>::init() {
         this->agg_values[n]  = INT64_MAX;
 
         for (auto ii = 0; ii < NPARTS; ++ii) {
-          this->ptn_mirrors[ii][n] = INT64_MAX;
+          this->ptn_updates[ii][n] = INT64_MAX;
         }
       },
       galois::steal(), galois::loopname("Init SSSP"));
@@ -40,16 +40,36 @@ void SSSP<T>::init() {
 
 template <typename T>
 void SSSP<T>::generateUpdates(unsigned int& ptn_id, GNode<T>& mirror) {
-  T new_dist =
-      this->ptn_mirrors[ptn_id].getData(mirror, galois::MethodFlag::READ) + 1;
+  T new_dist = this->curr_values.getData(mirror) + 1;
   for (auto ii : this->graph.edges(mirror)) {
     GNode<T> dst = this->graph.getEdgeDst(ii);
-    this->ptn_mirrors[ptn_id].minUpdate(dst, new_dist);
+    this->ptn_updates[ptn_id].minUpdate(dst, new_dist);
   }
 }
 
 template <typename T>
 void SSSP<T>::applyUpdates() {
+  // Apply Updates
+  galois::do_all(
+      galois::iterate(this->graph),
+      [&](GNode<T> src) {
+        if (this->agg_values.getData(src) == INT64_MAX) {
+          return;
+        }
+
+        if (this->agg_values.getData(src) < this->curr_values.getData(src)) {
+          this->curr_values[src] = this->agg_values.getData(src);
+          this->frontier.push(src);
+
+#ifdef SKYWALKER_DEBUG
+          galois::gInfo("Applying update to ", src, " with ",
+                        this->agg_values.getData(src));
+#endif
+        }
+
+        this->agg_values[src] = INT64_MAX;
+      },
+      galois::steal(), galois::loopname("Apply Updates"));
 }
 
 template <typename T>

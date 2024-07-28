@@ -21,7 +21,7 @@
 // #define ITER_STATS
 // #define METIS_SCHEME
 
-#define NPARTS 2
+// #define NPARTS 2
 
 namespace cll = llvm::cl;
 static cll::opt<std::string>
@@ -69,7 +69,7 @@ public:
 
   typename dataElement<T>::reference
   getData(const GNode<T>& n,
-          galois::MethodFlag mflag = galois::MethodFlag::WRITE) {
+          galois::MethodFlag mflag = galois::MethodFlag::READ) {
 
     acquireNode(n, mflag);
     return data[n].getData();
@@ -147,7 +147,7 @@ protected:
   Graph<T> graph;
 
   galois::InsertBag<GNode<T>> frontier;
-  galois::LazyArray<VertexList<T>, NPARTS> ptn_mirrors;
+  galois::LazyArray<VertexList<T>, NPARTS> ptn_updates;
   VertexList<T> partition_ids;
   VertexList<T> agg_values;
   VertexList<T> curr_values;
