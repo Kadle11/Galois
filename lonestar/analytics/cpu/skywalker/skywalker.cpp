@@ -29,18 +29,18 @@ void gen_partitions(idx_t* num_nodes, std::vector<idx_t>& parts,
                                 &objval, parts.data());
 
   if (res == METIS_OK) {
-    std::cout << "METIS Partitioning Successful\n";
+    galois::gInfo("METIS Partitioning Complete\n");
   } else {
-    std::cout << "METIS Partitioning Failed\n";
+    galois::gInfo("METIS Partitioning Failed\n");
   }
 }
 
-uint64_t sumResetLargeArray(galois::LargeArray<uint8_t>& arr) {
+uint64_t sumResetLargeArray(VertexList<uint8_t>& arr) {
   galois::GAccumulator<uint64_t> sum;
   galois::do_all(
       galois::iterate(size_t{0}, arr.size()),
       [&](size_t i) {
-        sum += arr[i];
+        sum += arr.getData(i, galois::MethodFlag::READ);
         arr[i] = 0;
       },
       galois::steal(), galois::no_stats());
@@ -82,40 +82,42 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
 #endif
 
   for (unsigned int i = 0; i < NPARTS; ++i) {
-    ptn_updates.construct(i, galois::InsertBag<VertexUpdates<T>>());
     ptn_sizes.construct(i, galois::GAccumulator<uint64_t>());
-    ptn_update_vtxs.construct(i, galois::LargeArray<uint8_t>());
-
-    ptn_update_vtxs[i].allocateInterleaved(graph.size());
+    ptn_update_vtxs.construct(i, VertexList<uint8_t>());
+    ptn_update_vtxs[i].allocate(graph.size());
   }
-  partition_ids.allocateInterleaved(graph.size());
+
+  partition_ids.allocate(graph.size());
+  curr_values.allocate(graph.size());
+  prev_values.allocate(graph.size());
+  agg_values.allocate(graph.size());
+  out_degrees.allocate(graph.size());
 
   galois::do_all(
       galois::iterate(graph),
       [&](GNode<T> n) {
-        LNode<T>& data = graph.getData(n, galois::MethodFlag::UNPROTECTED);
-        data.curr_val  = 0;
-        data.agg_val   = 0;
-        data.num_out_edges =
+        curr_values[n] = 0;
+        prev_values[n] = 0;
+        agg_values[n]  = 0;
+        out_degrees[n] =
             std::distance(graph.edges(n).begin(), graph.edges(n).end());
 
 #ifdef METIS_SCHEME
 
-        partition_ids.constructAt(n, partitions[n]);
+        partition_ids[n] = partitions[n];
 #else
-        partition_ids.constructAt(n, n % NPARTS);
+        partition_ids[n] = n % NPARTS;
 #endif
-        ptn_sizes[partition_ids[n]] += 1;
+        ptn_sizes[partition_ids.getData(n, galois::MethodFlag::READ)] += 1;
       },
       galois::steal(), galois::loopname("Init Graph Strtucture"));
 
   for (unsigned int i = 0; i < NPARTS; ++i) {
-    ptn_mirrors.construct(i, galois::LargeArray<T>());
-    ptn_mirrors[i].allocateInterleaved(graph.size());
+    ptn_mirrors.construct(i, VertexList<T>());
+    ptn_mirrors[i].allocate(graph.size());
 
     galois::do_all(
-        galois::iterate(graph),
-        [&](GNode<T> n) { ptn_mirrors[i].constructAt(n, INT64_MAX); },
+        galois::iterate(graph), [&](GNode<T> n) { ptn_mirrors[i][n] = 0; },
         galois::steal(), galois::loopname("Init Mirrors"));
   }
 
@@ -139,12 +141,13 @@ void GraphAlgorithm<T>::run() {
     galois::do_all(
         galois::iterate(frontier),
         [&](GNode<T>& src) {
-          LNode<T>& sdata = graph.getData(src, galois::MethodFlag::UNPROTECTED);
-          ptn_mirrors[partition_ids[src]][src] = sdata.curr_val;
+          ptn_mirrors[partition_ids[src]][src] =
+              curr_values.getData(src, galois::MethodFlag::READ);
           frontier_size += 1;
 
 #ifdef SKYWALKER_DEBUG
-          galois::gInfo("Updating mirror ", src, " with ", sdata.curr_val);
+          galois::gInfo("Updating mirror ", src, " with ",
+                        curr_values.getData(src, galois::MethodFlag::READ));
 #endif
         },
         galois::steal(), galois::loopname("Update Mirrors"));
@@ -164,7 +167,7 @@ void GraphAlgorithm<T>::run() {
       galois::do_all(
           galois::iterate(frontier),
           [&](GNode<T>& mirror) {
-            if (partition_ids[mirror] != i) {
+            if (partition_ids.getData(mirror, galois::MethodFlag::READ) != i) {
               return;
             }
 
@@ -178,7 +181,7 @@ void GraphAlgorithm<T>::run() {
 
             generateUpdates(i, mirror);
           },
-          galois::steal(), galois::loopname("Generate Updates"));
+          galois::loopname("Generate Updates"));
     }
 
 
@@ -188,16 +191,21 @@ void GraphAlgorithm<T>::run() {
     // Aggregate Updates
     for (unsigned int i = 0; i < NPARTS; ++i) {
       galois::do_all(
-          galois::iterate(ptn_updates[i]),
-          [&](VertexUpdates<T>& ptn_update) {
-            LNode<T>& sdata =
-                graph.getData(ptn_update.src, galois::MethodFlag::UNPROTECTED);
-            aggregateUpdates(sdata.agg_val, ptn_update.val);
+          galois::iterate(size_t{0}, graph.size()),
+          [&](size_t src) {
+            if (!ptn_mirrors[i].isUpdated(src)) {
+              return;
+            }
 
-            ptn_update_vtxs[i].constructAt(ptn_update.src, 1);
+            ptn_mirrors[i].resetUpdate(src);
+
+            aggregateUpdates(
+                agg_values[src],
+                ptn_mirrors[i].getData(src, galois::MethodFlag::READ));
+
+            ptn_update_vtxs[i][src] = 1;
           },
           galois::steal(), galois::loopname("Aggregate Updates"));
-      ptn_updates[i].clear();
 
       uint64_t unique_vtxs = sumResetLargeArray(ptn_update_vtxs[i]);
 
@@ -209,9 +217,29 @@ void GraphAlgorithm<T>::run() {
       ndp_enabled_iter += unique_vtxs * kv_size;
     }
 
-    updateFrontier();
+    // Apply Updates
+    galois::do_all(
+        galois::iterate(graph),
+        [&](GNode<T> src) {
+          if (agg_values.getData(src, galois::MethodFlag::READ) == INT64_MAX) {
+            return;
+          }
 
-    applyUpdates();
+          if (agg_values.getData(src, galois::MethodFlag::READ) <
+              curr_values.getData(src, galois::MethodFlag::READ)) {
+            curr_values[src] =
+                agg_values.getData(src, galois::MethodFlag::READ);
+            frontier.push(src);
+
+#ifdef SKYWALKER_DEBUG
+            galois::gInfo("Applying update to ", src, " with ",
+                          agg_values.getData(src, galois::MethodFlag::READ));
+#endif
+          }
+
+          agg_values[src] = INT64_MAX;
+        },
+        galois::steal(), galois::loopname("Apply Updates"));
 
 #ifdef ITER_STATS
     galois::gInfo("Iter[", rounds,
@@ -238,7 +266,7 @@ void GraphAlgorithm<T>::reportStats() {
 #ifdef SKYWALKER_DEBUG
   // Print out the results
   for (auto n : graph) {
-    std::cout << n << " " << graph.getData(n).curr_val << "\n";
+    std::cout << n << " " << curr_values[n] << "\n";
   }
 #endif
 }
