@@ -21,7 +21,7 @@
 // #define ITER_STATS
 // #define METIS_SCHEME
 
-#define NPARTS 128
+#define NPARTS 2
 
 namespace cll = llvm::cl;
 static cll::opt<std::string>
@@ -38,65 +38,92 @@ struct LNode {
 
 template <typename T>
 using Graph = typename galois::graphs::LC_CSR_Graph<
-    LNode<T>, uint32_t>::with_no_lockable<true>::type;
+    uint64_t, uint32_t>::with_no_lockable<true>::type;
 
 template <typename T>
 using GNode = typename Graph<T>::GraphNode;
 
 template <typename T>
-struct VertexMirror {
-  T value;
+struct dataElement : public galois::runtime::Lockable {
+
+public:
+  using reference = T&;
+
+  T v;
   bool updated;
 
-  std::shared_mutex _mtx;
+  reference getData() { return v; }
+};
 
-  VertexMirror() : value(0), updated(false) {}
-  T getValue() {
-    std::shared_lock<std::shared_mutex> lock(_mtx);
-    return value;
+template <typename T>
+struct VertexList {
+
+public:
+  VertexList() = default;
+
+  typename dataElement<T>::reference operator[](const GNode<T>& n) {
+
+    acquireNode(n, galois::MethodFlag::WRITE);
+    return data[n].getData();
   }
 
-  void initialize(const T& val) {
-    std::lock_guard<std::shared_mutex> lock(_mtx);
-    value = val;
+  typename dataElement<T>::reference
+  getData(const GNode<T>& n,
+          galois::MethodFlag mflag = galois::MethodFlag::WRITE) {
+
+    acquireNode(n, mflag);
+    return data[n].getData();
   }
 
-  void setValue(const T& val) {
-    std::lock_guard<std::shared_mutex> lock(_mtx);
-    value   = val;
-    updated = true;
+  void minUpdate(const GNode<T>& n, const T& val) {
+    acquireNode(n);
+    data[n].v       = std::min(data[n].v, val);
+    data[n].updated = true;
   }
 
-  void minUpdate(const T& val) {
-    std::lock_guard<std::shared_mutex> lock(_mtx);
-    if (val < value) {
-      value   = val;
-      updated = true;
-    }
+  void maxUpdate(const GNode<T>& n, const T& val) {
+    acquireNode(n);
+    data[n].v       = std::max(data[n].v, val);
+    data[n].updated = true;
   }
 
-  void maxUpdate(const T& val) {
-    std::lock_guard<std::shared_mutex> lock(_mtx);
-    if (val > value) {
-      value   = val;
-      updated = true;
-    }
+  void addUpdate(const GNode<T>& n, const T& val) {
+    acquireNode(n);
+    data[n].v += val;
+    data[n].updated = true;
   }
 
-  void addUpdate(const T& val) {
-    std::lock_guard<std::shared_mutex> lock(_mtx);
-    value += val;
-    updated = true;
+  void setUpdate(const GNode<T>& n, const T& val) {
+    acquireNode(n);
+    data[n].v       = val;
+    data[n].updated = true;
   }
 
-  bool isUpdated() {
-    std::shared_lock<std::shared_mutex> lock(_mtx);
-    return updated;
+  void resetUpdate(const GNode<T>& n) {
+    acquireNode(n);
+    data[n].updated = false;
   }
 
-  void reset() {
-    std::lock_guard<std::shared_mutex> lock(_mtx);
-    updated = false;
+  bool isUpdated(const GNode<T>& n) {
+    acquireNode(n, galois::MethodFlag::READ);
+    return data[n].updated;
+  }
+
+  void allocate(size_t size) { data.allocateInterleaved(size); }
+
+  using iterator = boost::counting_iterator<GNode<T>>;
+  iterator begin() { return iterator(0); }
+  iterator end() { return iterator(data.size()); }
+
+  size_t size() { return data.size(); }
+
+private:
+  galois::LargeArray<dataElement<T>> data;
+  void acquireNode(const GNode<T>& node,
+                   galois::MethodFlag mflag = galois::MethodFlag::WRITE) {
+
+    assert(n < data.size());
+    galois::runtime::acquire(&data[node], mflag);
   }
 };
 
@@ -120,8 +147,12 @@ protected:
   Graph<T> graph;
 
   galois::InsertBag<GNode<T>> frontier;
-  galois::LazyArray<galois::LargeArray<VertexMirror<T>>, NPARTS> ptn_mirrors;
-  galois::LargeArray<unsigned int> partition_ids;
+  galois::LazyArray<VertexList<T>, NPARTS> ptn_mirrors;
+  VertexList<T> partition_ids;
+  VertexList<T> agg_values;
+  VertexList<T> curr_values;
+  VertexList<T> prev_values;
+  VertexList<T> out_degrees;
 
   // Structures for Telemetry
   galois::GAccumulator<uint64_t> dm_ndp_enabled;
@@ -130,7 +161,7 @@ protected:
   galois::GAccumulator<uint64_t> ndp_enabled_iter;
   galois::GAccumulator<uint64_t> ndp_disabled_iter;
   galois::LazyArray<galois::GAccumulator<uint64_t>, NPARTS> ptn_sizes;
-  galois::LazyArray<galois::LargeArray<uint8_t>, NPARTS> ptn_update_vtxs;
+  galois::LazyArray<VertexList<uint8_t>, NPARTS> ptn_update_vtxs;
 
   uint64_t rounds                      = 0;
   static constexpr uint64_t vtx_size   = 8;

@@ -24,45 +24,32 @@ void SSSP<T>::init() {
   galois::do_all(
       galois::iterate(this->graph),
       [&](GNode<T> n) {
-        LNode<T>& data =
-            this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
-
-        data.curr_val = INT64_MAX;
-        data.prev_val = INT64_MAX;
-        data.agg_val  = INT64_MAX;
+        this->curr_values[n] = INT64_MAX;
+        this->prev_values[n] = INT64_MAX;
+        this->agg_values[n]  = INT64_MAX;
 
         for (auto ii = 0; ii < NPARTS; ++ii) {
-          this->ptn_mirrors[ii][n].value = INT64_MAX;
+          this->ptn_mirrors[ii][n] = INT64_MAX;
         }
       },
       galois::steal(), galois::loopname("Init SSSP"));
 
   this->frontier.push(0);
-  this->graph.getData(0).curr_val = 0;
+  this->curr_values[0] = 0;
 }
 
 template <typename T>
 void SSSP<T>::generateUpdates(unsigned int& ptn_id, GNode<T>& mirror) {
-  T new_dist = this->ptn_mirrors[ptn_id][mirror].getValue() + 1;
+  T new_dist =
+      this->ptn_mirrors[ptn_id].getData(mirror, galois::MethodFlag::READ) + 1;
   for (auto ii : this->graph.edges(mirror)) {
     GNode<T> dst = this->graph.getEdgeDst(ii);
-    this->ptn_mirrors[ptn_id][dst].minUpdate(new_dist);
+    this->ptn_mirrors[ptn_id].minUpdate(dst, new_dist);
   }
 }
 
 template <typename T>
 void SSSP<T>::applyUpdates() {
-  galois::do_all(
-      galois::iterate(this->graph),
-      [&](GNode<T> n) {
-        LNode<T>& data =
-            this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
-
-        if (data.curr_val > data.agg_val) {
-          data.curr_val = data.agg_val;
-        }
-      },
-      galois::steal(), galois::loopname("Apply Updates"));
 }
 
 template <typename T>
@@ -72,16 +59,6 @@ void SSSP<T>::aggregateUpdates(T& value, const T& temp_val) {
 
 template <typename T>
 void SSSP<T>::updateFrontier() {
-  galois::do_all(
-      galois::iterate(this->graph),
-      [&](GNode<T> n) {
-        LNode<T>& data =
-            this->graph.getData(n, galois::MethodFlag::UNPROTECTED);
-        if (data.curr_val < data.agg_val) {
-          this->frontier.push(n);
-        }
-      },
-      galois::steal(), galois::loopname("Update Frontier"));
 }
 
 template <typename T>
