@@ -65,8 +65,7 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
   xadj.push_back(curr_offset);
 
   for (auto n : graph) {
-    LNode<T>& data = graph.getData(n, galois::MethodFlag::UNPROTECTED);
-    curr_offset += data.num_out_edges;
+    curr_offset += this->out_degrees[n];
     xadj.push_back(curr_offset);
 
     for (auto e : graph.edges(n)) {
@@ -256,7 +255,7 @@ int main(int argc, char** argv) {
   galois::StatTimer execTime("Timer_0");
   execTime.start();
 
-  CC<uint64_t> algo_impl(inputFile);
+  PR<double> algo_impl(inputFile);
 
   algo_impl.init();
   algo_impl.reportStats();
