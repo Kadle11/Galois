@@ -579,7 +579,6 @@ int main(int argc, char** argv) {
       galois::iterate(graph),
       [&](uint64_t i) {
         uint32_t myDistance = graph.getData(i);
-        galois::gInfo("Node ", i, " has distance ", myDistance);
         if (myDistance != SSSP::DIST_INFINITY) {
           maxDistance.update(myDistance);
           distanceSum += myDistance;

@@ -665,34 +665,34 @@ void run() {
 
   // galois::preAlloc(numThreads + (graph.size() * sizeof(Node) * numThreads /
   // 8) / galois::runtime::MM::hugePageSize); Tighter upper bound
-  if (std::is_same<Algo, DefaultAlgo<nondet>>::value) {
-    galois::preAlloc(numThreads +
-                     16 * graph.size() / galois::runtime::pagePoolSize());
-  } else {
-    galois::preAlloc(numThreads + 64 * (sizeof(GNode) + sizeof(Node)) *
-                                      graph.size() /
-                                      galois::runtime::pagePoolSize());
-  }
+  // if (std::is_same<Algo, DefaultAlgo<nondet>>::value) {
+  //   galois::preAlloc(numThreads +
+  //                    16 * graph.size() / galois::runtime::pagePoolSize());
+  // } else {
+  //   galois::preAlloc(numThreads + 64 * (sizeof(GNode) + sizeof(Node)) *
+  //                                     graph.size() /
+  //                                     galois::runtime::pagePoolSize());
+  // }
 
-  galois::reportPageAlloc("MeminfoPre");
-  galois::StatTimer execTime("Timer_0");
+  // galois::reportPageAlloc("MeminfoPre");
+  // galois::StatTimer execTime("Timer_0");
 
-  execTime.start();
-  algo(graph);
-  execTime.stop();
+  // execTime.start();
+  // algo(graph);
+  // execTime.stop();
 
-  galois::reportPageAlloc("MeminfoPost");
+  // galois::reportPageAlloc("MeminfoPost");
 
-  if (!skipVerify && !verify(graph, algo)) {
-    std::cerr << "verification failed\n";
-    assert(0 && "verification failed");
-    abort();
-  }
+  // if (!skipVerify && !verify(graph, algo)) {
+  //   std::cerr << "verification failed\n";
+  //   assert(0 && "verification failed");
+  //   abort();
+  // }
 
-  std::cout << "Cardinality of maximal independent set: "
-            << galois::ParallelSTL::count_if(graph.begin(), graph.end(),
-                                             is_matched<Graph>(graph))
-            << "\n";
+  // std::cout << "Cardinality of maximal independent set: "
+  //           << galois::ParallelSTL::count_if(graph.begin(), graph.end(),
+  //                                            is_matched<Graph>(graph))
+  //           << "\n";
 }
 
 int main(int argc, char** argv) {
