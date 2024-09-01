@@ -156,16 +156,18 @@ protected:
 
   // Structures for Telemetry
   galois::GAccumulator<uint64_t> dm_ndp_enabled;
+  galois::GAccumulator<uint64_t> dm_ndp_agg_enabled;
+  
   galois::GAccumulator<uint64_t> dm_ndp_disabled;
   galois::GAccumulator<uint64_t> frontier_size;
   galois::GAccumulator<uint64_t> ndp_enabled_iter;
   galois::GAccumulator<uint64_t> ndp_disabled_iter;
   galois::LazyArray<galois::GAccumulator<uint64_t>, NPARTS> ptn_sizes;
-  galois::LazyArray<VertexList<uint8_t>, NPARTS> ptn_update_vtxs;
+  galois::LazyArray<VertexList<uint8_t>, NPARTS + 1> ptn_update_vtxs;
 
   uint64_t rounds                      = 0;
-  static constexpr uint64_t vtx_size   = 8;
-  static constexpr uint64_t kv_size    = 16;
+  static constexpr uint64_t vtx_size   = 4;
+  static constexpr uint64_t kv_size    = 12;
   static const unsigned int MAX_ROUNDS = 100;
 };
 

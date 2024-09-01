@@ -24,7 +24,7 @@ void gen_partitions(idx_t* num_nodes, std::vector<idx_t>& parts,
 
   METIS_SetDefaultOptions(options);
 
-  int res = METIS_PartGraphKway(num_nodes, &ncon, xadj.data(), adjncy.data(),
+  int res = METIS_PartGraphRecursive(num_nodes, &ncon, xadj.data(), adjncy.data(),
                                 NULL, NULL, NULL, &nparts, NULL, NULL, options,
                                 &objval, parts.data());
 
@@ -65,7 +65,7 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
   xadj.push_back(curr_offset);
 
   for (auto n : graph) {
-    curr_offset += this->out_degrees[n];
+    curr_offset += std::distance(graph.edges(n).begin(), graph.edges(n).end());
     xadj.push_back(curr_offset);
 
     for (auto e : graph.edges(n)) {
@@ -85,6 +85,9 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
     ptn_update_vtxs.construct(i, VertexList<uint8_t>());
     ptn_update_vtxs[i].allocate(graph.size());
   }
+
+  ptn_update_vtxs.construct(NPARTS, VertexList<uint8_t>());
+  ptn_update_vtxs[NPARTS].allocate(graph.size());
 
   partition_ids.allocate(graph.size());
   curr_values.allocate(graph.size());
@@ -122,6 +125,7 @@ GraphAlgorithm<T>::GraphAlgorithm(std::string& input) {
 
   dm_ndp_enabled.reset();
   dm_ndp_disabled.reset();
+  dm_ndp_agg_enabled.reset();
 
 #ifdef METIS_SCHEME
 
@@ -153,11 +157,12 @@ void GraphAlgorithm<T>::run() {
     galois::gInfo("Frontier Size: ", frontier_size.reduce());
 #endif
 
-    dm_ndp_disabled += frontier_size.reduce() * vtx_size;
-    dm_ndp_enabled += frontier_size.reduce() * kv_size;
+    dm_ndp_disabled += 2 * frontier_size.reduce() * vtx_size;
+    dm_ndp_enabled += 2 * frontier_size.reduce() * kv_size;
+    dm_ndp_agg_enabled += 2 * frontier_size.reduce() * kv_size;
 
-    ndp_disabled_iter += frontier_size.reduce() * vtx_size;
-    ndp_enabled_iter += frontier_size.reduce() * kv_size;
+    ndp_disabled_iter += 2 * frontier_size.reduce() * vtx_size;
+    ndp_enabled_iter += 2 * frontier_size.reduce() * kv_size;
 
     // Generate Updates
     for (unsigned int i = 0; i < NPARTS; ++i) {
@@ -170,11 +175,11 @@ void GraphAlgorithm<T>::run() {
 
             dm_ndp_disabled += std::distance(graph.edges(mirror).begin(),
                                              graph.edges(mirror).end()) *
-                               vtx_size;
+                               vtx_size * 2;
 
             ndp_disabled_iter += std::distance(graph.edges(mirror).begin(),
                                                graph.edges(mirror).end()) *
-                                 vtx_size;
+                                 vtx_size * 2;
 
             generateUpdates(i, mirror);
           },
@@ -197,7 +202,8 @@ void GraphAlgorithm<T>::run() {
 
             aggregateUpdates(agg_values[src], ptn_updates[i].getData(src));
 
-            ptn_update_vtxs[i][src] = 1;
+            ptn_update_vtxs[i][src]      = 1;
+            ptn_update_vtxs[NPARTS][src] = 1;
           },
           galois::steal(), galois::loopname("Aggregate Updates"));
 
@@ -207,9 +213,13 @@ void GraphAlgorithm<T>::run() {
       galois::gInfo("Partition[", i, "] Unique Vtxs: ", unique_vtxs);
 #endif
 
-      dm_ndp_enabled += unique_vtxs * kv_size;
-      ndp_enabled_iter += unique_vtxs * kv_size;
+      dm_ndp_enabled += 2 * unique_vtxs * kv_size;
+      ndp_enabled_iter += 2 * unique_vtxs * kv_size;
+
+      dm_ndp_agg_enabled += unique_vtxs * kv_size;
     }
+
+    dm_ndp_agg_enabled += sumResetLargeArray(ptn_update_vtxs[NPARTS]) * kv_size;
 
     updateFrontier();
 
@@ -236,6 +246,9 @@ void GraphAlgorithm<T>::reportStats() {
       "Skywalker", "Data Movement (NDP Enabled) ", dm_ndp_enabled.reduce());
   galois::runtime::reportStat_Single(
       "Skywalker", "Data Movement (NDP Disabled)", dm_ndp_disabled.reduce());
+  galois::runtime::reportStat_Single("Skywalker",
+                                     "Data Movement (NDP Agg Enabled)",
+                                     dm_ndp_agg_enabled.reduce());
 
 #ifdef SKYWALKER_DEBUG
   // Print out the results
