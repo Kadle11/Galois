@@ -99,6 +99,13 @@ public:
   size_t size() const { return num_bits; }
 
   /**
+   * Gets the number of bytes used by the bitset
+   * @returns The number of bytes used by the bitset
+   */
+
+  size_t size_bytes() const { return num_bits * bits_uint64; }
+
+  /**
    * Gets the space taken by the bitset
    * @returns the space in bytes taken by this bitset
    */
