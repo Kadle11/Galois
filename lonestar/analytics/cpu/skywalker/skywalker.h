@@ -157,7 +157,7 @@ protected:
   // Structures for Telemetry
   galois::GAccumulator<uint64_t> dm_ndp_enabled;
   galois::GAccumulator<uint64_t> dm_ndp_agg_enabled;
-  
+
   galois::GAccumulator<uint64_t> dm_ndp_disabled;
   galois::GAccumulator<uint64_t> frontier_size;
   galois::GAccumulator<uint64_t> ndp_enabled_iter;
