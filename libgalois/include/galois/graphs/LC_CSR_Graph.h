@@ -156,7 +156,6 @@ public:
   typedef iterator local_iterator;
   typedef iterator const_local_iterator;
 
-protected:
   NodeData nodeData;
   EdgeIndData edgeIndData;
   EdgeDst edgeDst;
@@ -165,6 +164,7 @@ protected:
   uint64_t numNodes;
   uint64_t numEdges;
 
+protected:
   typedef internal::EdgeSortIterator<
       GraphNode, typename EdgeIndData::value_type, EdgeDst, EdgeData>
       edge_sort_iterator;

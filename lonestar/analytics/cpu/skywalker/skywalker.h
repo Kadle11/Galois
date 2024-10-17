@@ -168,7 +168,7 @@ protected:
   uint64_t rounds                      = 0;
   static constexpr uint64_t vtx_size   = 4;
   static constexpr uint64_t kv_size    = 12;
-  static const unsigned int MAX_ROUNDS = 100;
+  static const unsigned int MAX_ROUNDS = 1000;
 };
 
 #endif // SKYWALKER_H

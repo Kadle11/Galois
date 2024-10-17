@@ -138,7 +138,7 @@ bool PR<T>::terminate() {
   }
 #endif
 
-  return !this->frontier.empty() && this->rounds < 20;
+  return !this->frontier.empty();
 }
 
 // Explicit template instantiation
