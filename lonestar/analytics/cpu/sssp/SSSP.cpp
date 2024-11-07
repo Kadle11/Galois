@@ -247,7 +247,7 @@ void dijkstraAlgo(Graph& graph, const GNode& source, const P& pushWrap,
       GNode dst   = graph.getEdgeDst(e);
       auto& ddata = graph.getData(dst);
 
-      const auto newDist = item.dist + graph.getEdgeData(e);
+      const auto newDist = item.dist + 1;
 
       if (newDist < ddata) {
         ddata = newDist;
@@ -583,6 +583,8 @@ int main(int argc, char** argv) {
           maxDistance.update(myDistance);
           distanceSum += myDistance;
           visitedNode += 1;
+
+          galois::gInfo("Node ", i, " has distance ", myDistance);
         }
       },
       galois::loopname("Sanity check"), galois::no_stats());
