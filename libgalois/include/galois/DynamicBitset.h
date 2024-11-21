@@ -47,10 +47,10 @@ namespace galois {
 class DynamicBitSet {
 protected:
   size_t num_bits;
-  static constexpr uint32_t bits_uint64 = sizeof(uint64_t) * CHAR_BIT;
 
 public:
   galois::PODResizeableArray<galois::CopyableAtomic<uint64_t>> bitvec;
+  static constexpr uint32_t bits_uint64 = sizeof(uint64_t) * CHAR_BIT;
 
   //! Constructor which initializes to an empty bitset.
   DynamicBitSet() : num_bits(0) {}
