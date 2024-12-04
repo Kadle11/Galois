@@ -203,14 +203,14 @@ public:
 
   //! [allocatefunctions]
   //! Allocates interleaved across NUMA (memory) nodes.
-  void allocateInterleaved(size_type n) { allocate(n, Interleaved); }
+  void allocateInterleaved(size_type n) { allocate(n, Local); }
 
   /**
    * Allocates using blocked memory policy
    *
    * @param  n         number of elements to allocate
    */
-  void allocateBlocked(size_type n) { allocate(n, Blocked); }
+  void allocateBlocked(size_type n) { allocate(n, Local); }
 
   /**
    * Allocates using Thread Local memory policy
@@ -224,7 +224,7 @@ public:
    *
    * @param  n         number of elements to allocate
    */
-  void allocateFloating(size_type n) { allocate(n, Floating); }
+  void allocateFloating(size_type n) { allocate(n, Local); }
 
   /**
    * Allocate memory to threads based on a provided array specifying which
