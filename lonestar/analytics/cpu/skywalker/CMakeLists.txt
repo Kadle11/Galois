@@ -2,15 +2,15 @@ add_executable(skywalker-cpu skywalker.cpp)
 add_dependencies(apps skywalker-cpu)
 target_link_libraries(skywalker-cpu PRIVATE Galois::shmem lonestar)
 
-target_include_directories(skywalker-cpu PRIVATE "/proj/prismgt-PG0/vrao79/metis-install/include")
+target_include_directories(skywalker-cpu PRIVATE "/nethome/vrao79/local/include")
 
-find_library(GKLIB GKlib "/proj/prismgt-PG0/vrao79/metis-install/lib")
+find_library(GKLIB GKlib "/nethome/vrao79/local/lib")
 
 if(NOT GKLIB)
   message(FATAL_ERROR "GKLib not found")
 endif()
 
-find_library(METIS metis "/proj/prismgt-PG0/vrao79/metis-install/lib")
+find_library(METIS metis "/nethome/vrao79/local/lib")
 
 if(NOT METIS)
   message(FATAL_ERROR "METIS not found")
