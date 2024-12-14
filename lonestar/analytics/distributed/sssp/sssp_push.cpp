@@ -253,7 +253,7 @@ struct SSSP {
       galois::runtime::reportStat_Tsum(
           "SSSP", "NumWorkItems_" + (syncSubstrate->get_run_identifier()),
           work_edges.read_local());
-      ++_num_iterations;
+      galois::gDebug("SSSP::go:: ", "Iterations ", _num_iterations++);
     } while ((async || (_num_iterations < maxIterations)) &&
              dga.reduce(syncSubstrate->get_run_identifier()));
 
