@@ -275,7 +275,7 @@ struct PageRank {
           REGION_NAME, "NumWorkItems_" + (syncSubstrate->get_run_identifier()),
           (unsigned long)dga.read_local());
 
-      ++_num_iterations;
+      galois::gDebug("PageRank::go:: ", "Iterations ", _num_iterations++);
     } while ((async || (_num_iterations < maxIterations)) &&
              dga.reduce(syncSubstrate->get_run_identifier()));
 

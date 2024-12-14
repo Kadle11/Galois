@@ -216,7 +216,7 @@ struct ConnectedComp {
       galois::runtime::reportStat_Tsum(
           REGION_NAME, "NumWorkItems_" + (syncSubstrate->get_run_identifier()),
           (unsigned long)dga.read_local());
-      ++_num_iterations;
+      galois::gDebug("ConnectedComp::go:: ", "Iterations ", _num_iterations++);
     } while ((async || (_num_iterations < maxIterations)) &&
              dga.reduce(syncSubstrate->get_run_identifier()));
 

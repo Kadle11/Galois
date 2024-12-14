@@ -27,6 +27,16 @@
 #include "galois/runtime/Tracer.h"
 #include "galois/substrate/SimpleLock.h"
 
+#include <chrono>
+#include <cstdint>
+
+// RDTSC function
+inline uint64_t rdtsc() {
+  unsigned int lo, hi;
+  __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi)); // Read TSC
+  return ((uint64_t)hi << 32) | lo; // Combine high and low bits
+}
+
 /**
  * MPI implementation of network IO. ASSUMES THAT MPI IS INITIALIZED
  * UPON CREATION OF THIS OBJECT.
@@ -42,6 +52,13 @@ private:
     int taskRank;
     handleError(MPI_Comm_rank(MPI_COMM_WORLD, &taskRank));
     return taskRank;
+  }
+
+  static void delay_300() {
+    uint64_t cycles = 360; // 1.2 GHz Clock x 300 ns = 300 cycles
+    uint64_t start  = rdtsc();
+    while ((rdtsc() - start) < cycles)
+      ;
   }
 
   /**
@@ -117,6 +134,8 @@ private:
       int rv = MPI_Issend(f.data.data(), f.data.size(), MPI_BYTE, f.host, f.tag,
                           MPI_COMM_WORLD, &f.req);
 #else
+ 
+      // NetworkIOMPI::delay_300();
       int rv = MPI_Isend(f.data.data(), f.data.size(), MPI_BYTE, f.host, f.tag,
                          MPI_COMM_WORLD, &f.req);
 #endif
