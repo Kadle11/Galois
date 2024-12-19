@@ -104,7 +104,7 @@ public:
    * @returns The number of bytes used by the bitset
    */
 
-  size_t size_bytes() const { bitvec.size(); }
+  size_t size_bytes() const {return bitvec.size(); }
 
   /**
    * Gets the space taken by the bitset
