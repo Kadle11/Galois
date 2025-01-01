@@ -366,10 +366,10 @@ int main(int argc, char** argv) {
   std::unique_ptr<Graph> hg;
 #ifdef GALOIS_ENABLE_GPU
   std::tie(hg, syncSubstrate) =
-      symmetricDistGraphInitialization<NodeData, void>(&cuda_ctx);
+      distGraphInitialization<NodeData, void>(&cuda_ctx);
 #else
   std::tie(hg, syncSubstrate) =
-      symmetricDistGraphInitialization<NodeData, void>();
+      distGraphInitialization<NodeData, void>();
 #endif
 
   bitset_comp_current.resize(hg->size());

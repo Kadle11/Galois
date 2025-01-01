@@ -177,7 +177,7 @@ struct FirstItr_SSSP {
     for (auto jj : graph->edges(src)) {
       GNode dst         = graph->getEdgeDst(jj);
       auto& dnode       = graph->getData(dst);
-      uint32_t new_dist = graph->getEdgeData(jj) + snode.dist_current;
+      uint32_t new_dist = graph->getEdgeData(jj) + 1;
       uint32_t old_dist = galois::atomicMin(dnode.dist_current, new_dist);
       if (old_dist > new_dist)
         bitset_dist_current.set(dst);
@@ -276,7 +276,7 @@ struct SSSP {
 
           GNode dst         = graph->getEdgeDst(jj);
           auto& dnode       = graph->getData(dst);
-          uint32_t new_dist = graph->getEdgeData(jj) + snode.dist_current;
+          uint32_t new_dist = graph->getEdgeData(jj) + 1;
           uint32_t old_dist = galois::atomicMin(dnode.dist_current, new_dist);
           if (old_dist > new_dist)
             bitset_dist_current.set(dst);
