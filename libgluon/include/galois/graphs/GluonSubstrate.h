@@ -2425,16 +2425,24 @@ private:
   void sync_mpi_recv_wait(std::string loopName,
                           std::vector<MPI_Request>& request,
                           const std::vector<std::vector<uint8_t>>& rb) {
+
+    std::string syncTypeStr = (syncType == syncReduce) ? "Reduce" : "Broadcast";
+    galois::CondStatTimer<GALOIS_COMM_STATS> TIdleTime(
+    (syncTypeStr + "Idle_" + get_run_identifier(loopName)).c_str(), RNAME);
+
     for (unsigned h = 1; h < numHosts; ++h) {
       unsigned x = (id + numHosts - h) % numHosts;
       if (nothingToRecv(x, syncType, writeLocation, readLocation))
         continue;
 
+
+      TIdleTime.start();    
       MPI_Status status;
       MPI_Wait(&request[x], &status);
 
       int size = 0;
       MPI_Get_count(&status, MPI_BYTE, &size);
+      TIdleTime.stop();
 
       galois::runtime::RecvBuffer rbuf(rb[x].begin(), rb[x].begin() + size);
 
@@ -2572,7 +2580,10 @@ private:
         (syncTypeStr + "Send_" + get_run_identifier(loopName)).c_str(), RNAME);
     galois::CondStatTimer<GALOIS_COMM_STATS> TRecvTime(
         (syncTypeStr + "Recv_" + get_run_identifier(loopName)).c_str(), RNAME);
-
+    
+    galois::CondStatTimer<GALOIS_COMM_STATS> TIdleTime(
+        (syncTypeStr + "Idle_" + get_run_identifier(loopName)).c_str(), RNAME);
+    
     static std::vector<std::vector<uint8_t>> rb;
     static std::vector<MPI_Request> request;
 
@@ -2593,10 +2604,10 @@ private:
       TRecvTime.stop();
     }
 
-    TRecvTime.start();
+    TIdleTime.start();
     sync_mpi_recv_post<writeLocation, readLocation, syncType, SyncFnTy,
                        BitsetFnTy>(request, rb);
-    TRecvTime.stop();
+    TIdleTime.stop();
 
     TSendTime.start();
     if (use_bitset_to_send) {

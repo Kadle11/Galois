@@ -555,7 +555,7 @@ inline void reportStat_Tmin(const S1& region, const S2& category,
 template <typename S1, typename S2, typename T>
 inline void reportStat_Tmax(const S1& region, const S2& category,
                             const T& value) {
-  reportStat(region, category, value, StatTotal::TMAX);
+  reportStat(region, category, value, StatTotal::TAVG);
 }
 
 template <typename S1, typename S2, typename T>
