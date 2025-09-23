@@ -90,7 +90,7 @@ private:
   std::vector<NodeRangeType> specificRanges;
   //! Like specificRanges, but for in edges
   std::vector<NodeRangeType> specificRangesIn;
-
+  
 protected:
   //! The internal graph used by DistGraph to represent the graph
   GraphTy graph;
@@ -99,8 +99,6 @@ protected:
   bool transposed;
 
   // global graph variables
-  uint64_t numGlobalNodes; //!< Total nodes in the global unpartitioned graph.
-  uint64_t numGlobalEdges; //!< Total edges in the global unpartitioned graph.
   uint32_t numNodes;       //!< Num nodes in this graph in total
   uint64_t numEdges;       //!< Num edges in this graph in total
 
@@ -495,6 +493,9 @@ public:
   using const_iterator = typename GraphTy::const_iterator;
   //! iterator type over edges
   using edge_iterator = typename GraphTy::edge_iterator;
+
+  uint64_t numGlobalNodes; //!< Total nodes in the global unpartitioned graph.
+  uint64_t numGlobalEdges; //!< Total edges in the global unpartitioned graph.
 
   /**
    * Constructor for DistGraph. Initializes metadata fields.

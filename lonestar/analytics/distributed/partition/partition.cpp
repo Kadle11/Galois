@@ -22,6 +22,7 @@
 #include "DistBench/Start.h"
 #include "galois/DistGalois.h"
 #include "galois/gstl.h"
+#include <fstream>
 
 /******************************************************************************/
 /* Declaration of command line arguments */
@@ -39,6 +40,7 @@ struct NodeData {
 
 typedef galois::graphs::DistGraph<NodeData, void> Graph;
 typedef typename Graph::GraphNode GNode;
+std::unique_ptr<galois::graphs::GluonSubstrate<Graph>> syncSubstrate;
 
 /******************************************************************************/
 /* Main */
@@ -48,9 +50,41 @@ constexpr static const char* const name = "Partition";
 constexpr static const char* const desc = "Partitions a normal graph.";
 constexpr static const char* const url  = 0;
 
+static cll::opt<unsigned int>
+    numParts("numParts", cll::desc("Number of parts to partition into"),
+             cll::init(3));
+
+static cll::opt<std::string>
+    output_path("output_path", cll::desc("Output file for partitioned graph"),
+           cll::init(""));
+
 int main(int argc, char** argv) {
   galois::DistMemSys G;
   DistBenchStart(argc, argv, name, desc, url);
-  distGraphInitialization<NodeData, void>();
+
+  std::unique_ptr<Graph> hg;
+  std::tie(hg, syncSubstrate) = distGraphInitialization<NodeData, void>();
+
+  auto& net = galois::runtime::getSystemNetworkInterface();
+
+  if (net.ID == 0) {
+
+    std::ofstream outfile;
+    if (output_path != "") {
+      outfile.open(output_path);
+    } else {
+      outfile.open("part_" + std::to_string(numParts) + "_" +
+                   std::to_string(hg->numGlobalNodes) + "_" +
+                   std::to_string(hg->numGlobalEdges) + ".txt");
+    }
+
+    for (uint64_t i = 0; i < hg->numGlobalNodes; ++i) {
+      auto part = hg->getHostID(i);
+      outfile << part << "\n";
+    }
+
+    outfile.close();
+  }
+
   return 0;
 }
