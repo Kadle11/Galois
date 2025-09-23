@@ -31,9 +31,9 @@ endif()
 
 ###### Options (alternatively pass as options to cmake -DName=Value) ######
 ###### Distributed-heterogeneous features ######
-set(GALOIS_ENABLE_DIST OFF CACHE BOOL "Enable distributed features")
+set(GALOIS_ENABLE_DIST ON CACHE BOOL "Enable distributed features")
 set(GALOIS_CUDA_CAPABILITY "" CACHE STRING "Semi-colon list of CUDA compute capability version numbers to enable GPU features") # e.g., "3.7;6.1"
-set(GALOIS_COMM_STATS OFF CACHE BOOL "Report more detailed statistics of communication")
+set(GALOIS_COMM_STATS ON CACHE BOOL "Report more detailed statistics of communication")
 ###### General features ######
 set(GALOIS_ENABLE_PAPI OFF CACHE BOOL "Use PAPI counters for profiling")
 set(GALOIS_ENABLE_VTUNE OFF CACHE BOOL "Use VTune for profiling")
@@ -52,7 +52,7 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries")
 set(GALOIS_PER_ROUND_STATS OFF CACHE BOOL "Report statistics of each round of execution")
 set(GALOIS_NUM_TEST_GPUS "0" CACHE STRING "Number of test GPUs to use (on a single machine) for running the tests.")
 set(GALOIS_USE_LCI OFF CACHE BOOL "Use LCI network runtime instead of MPI")
-set(GALOIS_USE_BARE_MPI OFF CACHE BOOL "Use MPI directly (no dedicated network-runtime thread)")
+set(GALOIS_USE_BARE_MPI ON CACHE BOOL "Use MPI directly (no dedicated network-runtime thread)")
 set(GALOIS_NUM_TEST_THREADS "" CACHE STRING "Maximum number of threads to use when running tests (default: number of physical cores)")
 
 if(NOT GALOIS_NUM_TEST_THREADS)
